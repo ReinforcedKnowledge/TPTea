@@ -1,13 +1,11 @@
 GIT_ROOT ?= $(shell git rev-parse --show-toplevel)
 
-# format
-format:
+format: ## run code formatter : black
 		pre-commit install
 		pre-commit run black --all-files
-		pre-commit run isort
+		# pre-commit run isort
 
 # lint
 
-# test
-test:
+test:   ## run tests with pytest
 		pytest tests

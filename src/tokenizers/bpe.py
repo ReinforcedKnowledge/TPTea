@@ -1,8 +1,10 @@
+from os.path import exists
 from .base import BaseTokenizer
 from dataclasses import dataclass
 from typing import Dict
 from collections import defaultdict, Counter
 import re
+import json
 
 VOCAB_SIZE = 13
 
@@ -71,6 +73,26 @@ class BPE(BaseTokenizer):
             w_out = p.sub("".join(pair), word)
             v_out[w_out] = v_in[word]
         return v_out
+
+    def save(self, filename, overwrite=False):
+        if exists(filename) and not overwrite:
+            raise ValueError(f"File {filename} already exists!")
+
+        try:
+            with open(filename, "w") as fp:
+                json.dump(self.get_vocab(), fp)
+        except Exception as e:
+            raise IOError(f"An I/O error occured while writing {filename} : {e}")
+
+    def load(self, filename):
+        if not exists(filename):
+            raise (f"File {filename} does not exist!")
+
+        try:
+            with open(filename, "r") as fp:
+                self.vocab = json.load(fp)
+        except Exception as e:
+            raise IOError(f"An I/O error occured while reading {filename} : {e}")
 
 
 if __name__ == "__main__":

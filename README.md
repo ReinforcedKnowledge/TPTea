@@ -13,7 +13,7 @@ Everything implemented must be tested (pytest), check out tests coverage
 Check how to automate new tests, styling (isort, black/ruff), static type checks (mypy)
 
 Implement the following components (the logic may be revisited)
-- Dataset, check how we can make it distributed, 
+- Dataset, check how we can make it distributed,
 - Model,
 - Tokenizer (If needed, implement a faster version, either through algorithmic optimization or using another language),
 - Optimizer,

@@ -23,3 +23,9 @@ class BaseTokenizer(ABC):
 
     def normalize(self, text: str) -> str:
         return unicodedata.normalize("NFKD", text)
+
+    def save(self, filename: str):
+        raise NotImplementedError()
+
+    def load(self, filename: str):
+        raise NotImplementedError()
