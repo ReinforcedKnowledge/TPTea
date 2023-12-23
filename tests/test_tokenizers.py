@@ -1,6 +1,7 @@
-from src.tokenizers.bpe import BPE, BPEConfig
 import json
 import tempfile
+
+from src.tokenizers.bpe import BPE, BPEConfig
 
 VOCAB_SIZE = 13  # ~ to 13-7 = 6 merges
 

@@ -5,7 +5,9 @@ format: ## run code formatter : black
 		pre-commit run black --all-files
 		# pre-commit run isort
 
-# lint
+lint:	## run linters: pre-commit (black, ruff) and mypy
+		pre-commit install && pre-commit run --all-files --show-diff-on-failure
+		mypy .
 
 test:   ## run tests with pytest
 		pytest tests

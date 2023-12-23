@@ -1,10 +1,11 @@
-from os.path import exists
-from .base import BaseTokenizer
-from dataclasses import dataclass
-from typing import Dict
-from collections import defaultdict, Counter
-import re
 import json
+import re
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from os.path import exists
+from typing import Dict
+
+from .base import BaseTokenizer
 
 VOCAB_SIZE = 13
 
@@ -28,6 +29,7 @@ class BPE(BaseTokenizer):
     def tokenize(self, text: str):
         raise NotImplementedError()
 
+    @property
     def get_vocab(self) -> Dict[str, int]:
         return self.vocab
 
@@ -42,7 +44,7 @@ class BPE(BaseTokenizer):
         corpus = self.pre_tokenize(corpus)
 
         train_dict = Counter(corpus.split())
-        train_dict = {" ".join(list(k)): v for k, v in train_dict.items()}
+        train_dict = Counter({" ".join(list(k)): v for k, v in train_dict.items()})
         print(train_dict)
 
         print(f"{self.num_merges=}")
