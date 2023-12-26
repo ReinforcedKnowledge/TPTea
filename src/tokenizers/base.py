@@ -1,3 +1,4 @@
+import re
 import unicodedata
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
@@ -52,7 +53,9 @@ class BaseTokenizer(ABC):
         raise NotImplementedError()
 
     def pre_tokenize(self, text: str) -> str:
-        return text.replace(r"\s+", "")
+        text = re.sub(r"\s+", " ", text)
+        text = text.replace(" ", "Ġ")
+        return text
 
     def normalize(self, text: str) -> str:
         return unicodedata.normalize("NFKD", text)

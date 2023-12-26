@@ -14,7 +14,7 @@ VOCAB_SIZE = 13
 @dataclass()
 class BPEConfig:
     vocab_size: int = VOCAB_SIZE
-    special_tokens = ["<unk>", "<pad>", "<bos>", "<eos>"]
+    special_tokens = ["<unk>", "<pad>", "<bos>", "<eos>", "Ġ"]
     base_vocab: str = "bghnpsu"
 
 
@@ -28,7 +28,7 @@ class BPE(BaseTokenizer):
         self.create_vocab()
 
     def tokenize(self, text: str) -> List[Optional[int]]:
-        clean_text = list(self.pre_tokenize(self.normalize(text)))
+        clean_text = self.pre_tokenize(self.normalize(text)).split()
         tokens = []
 
         # prepend a bos token at the start
@@ -56,7 +56,21 @@ class BPE(BaseTokenizer):
         return tokens
 
     def detokenize(self, inputs: List[int]) -> str:
-        return " ".join([self.vocab.inv[index] for index in inputs])
+        BOS_INDEX = self.vocab["<bos>"]
+        EOS_INDEX = self.vocab["<eos>"]
+        SPACE_INDEX = self.vocab["Ġ"]
+
+        detokenized_string = ""
+
+        for index in inputs:
+            if index in (BOS_INDEX, EOS_INDEX):
+                continue
+            if index == SPACE_INDEX:
+                detokenized_string += " "
+            else:
+                detokenized_string += self.vocab.inv[index]
+
+        return detokenized_string.lstrip()
 
     def break_into_subwords(self, word: str) -> List[str]:
         """Break unknown words into subwords by finding the longest subword that is in the vocab
