@@ -21,7 +21,9 @@ class BaseTokenizer(ABC):
         return self.tokenize(text)
 
     @abstractmethod
-    def tokenize(self, text: str) -> List[Optional[int]]:
+    def tokenize(
+        self, text: str
+    ) -> List[Optional[int]]:  # TODO: Check why optional is needed with mypy
         """Transform strings into tokens.
 
         Args:

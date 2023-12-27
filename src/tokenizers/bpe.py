@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from os.path import exists
 from typing import Any, List, Optional
@@ -112,7 +113,9 @@ class BPE(BaseTokenizer):
                     break
         return subwords
 
-    def tokenize(self, text: str) -> List[Optional[int]]:
+    def tokenize(
+        self, text: str
+    ) -> List[Optional[int]]:  # TODO: Check why optional is needed with mypy
         clean_text = self.pre_tokenize(self.normalize(text)).split()
         print(clean_text)
         tokens = []
@@ -141,6 +144,12 @@ class BPE(BaseTokenizer):
 
         return tokens
 
+    def tokenize_batch(
+        self, texts: List[str], num_threads: int = 4
+    ) -> List[List[Optional[int]]]:
+        with ThreadPoolExecutor(num_threads) as e:
+            return list(e.map(self.tokenize, texts))
+
     def detokenize(self, inputs: List[int]) -> str:
         BOS_EOS = (self.vocab[BOS], self.vocab[EOS])
         SPACE_INDEX = self.vocab[SPACE]
@@ -156,6 +165,10 @@ class BPE(BaseTokenizer):
                 detokenized_string += self.vocab.inv[index]
 
         return detokenized_string.lstrip()
+
+    def detokenize_batch(self, inputs: List[int], num_threads: int = 4) -> List[str]:
+        with ThreadPoolExecutor(num_threads) as e:
+            return list(e.map(self.detokenize, inputs))
 
     def save(self, filename, overwrite=False):
         if exists(filename) and not overwrite:
