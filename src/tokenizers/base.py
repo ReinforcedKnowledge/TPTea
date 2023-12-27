@@ -1,5 +1,4 @@
 import re
-import unicodedata
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 
@@ -58,8 +57,10 @@ class BaseTokenizer(ABC):
         text = text.replace(" ", f"{SPACE} ")
         return text
 
+    # TODO: implement later
     def normalize(self, text: str) -> str:
-        return unicodedata.normalize("NFKD", text)
+        # return unicodedata.normalize("NFKD", text)
+        return text
 
     def save(self, filename: str):
         raise NotImplementedError()

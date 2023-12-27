@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -7,7 +8,9 @@ from typing import Any, List, Optional
 
 from .base import BaseTokenizer
 from .constants import BOS, EOS, PAD, SPACE, UNK
-from .utils import InvertibleDict, InvertibleDictEncoder
+from .utils import InvertibleDict, InvertibleDictEncoder, setup_logger
+
+logger = setup_logger("logger", logging.ERROR)
 
 
 @dataclass
@@ -25,6 +28,89 @@ class BPE(BaseTokenizer):
         self.base_vocab_size = len(self.base_vocab) + len(self.special_tokens)
         self.num_merges = self.vocab_size - self.base_vocab_size
         self.create_vocab()
+
+    def __len__(self) -> int:
+        return len(self.vocab)
+
+    def create_vocab(self) -> None:
+        # combine special tokens and base vocabulary
+        combined_vocab = self.special_tokens + list(self.base_vocab)
+
+        # create the vocabulary as an invertible mapping: char <=> index
+        self.vocab = InvertibleDict(
+            {char: index for index, char in enumerate(combined_vocab)}
+        )
+
+    @property
+    def get_vocab(self) -> InvertibleDict[Any, int]:
+        return self.vocab
+
+    def get_stats(self, train_dict):
+        pairs = defaultdict(int)
+        for word, freq in train_dict.items():
+            symbols = word.split()
+            for i in range(len(symbols) - 1):
+                pairs[symbols[i], symbols[i + 1]] += freq
+        return pairs
+
+    def merge_vocab(self, pair, v_in):
+        v_out = {}
+        bigram = re.escape(" ".join(pair))
+        p = re.compile(r"(?<!\S)" + bigram + r"(?!\S)")
+        for word in v_in:
+            w_out = p.sub("".join(pair), word)
+            v_out[w_out] = v_in[word]
+        return v_out
+
+    def train(self, corpus: str, debug: bool = False):
+        if debug:
+            logger.setLevel(logging.DEBUG)
+
+        # normalize the corpus
+        corpus = self.normalize(corpus)
+        logger.debug(f"Normalized corpus: {corpus}")
+
+        # remove white spaces
+        corpus = self.pre_tokenize(corpus)
+        logger.debug(f"Pretokenized corpus: {corpus}")
+
+        # create a dictionary of counts
+        train_dict = Counter(corpus.split())
+        train_dict = Counter({" ".join(list(k)): v for k, v in train_dict.items()})
+        logger.debug(f"Train dict: {train_dict}")
+        logger.debug(f"Starting vocab: {self.vocab}\n")
+
+        for i in range(self.num_merges):
+            logger.debug(f"Merge num: {i}")
+            pairs = self.get_stats(train_dict)
+            logger.debug(f"\tUpdated pairs frequencies: {pairs}")
+            best = max(pairs, key=pairs.get)
+            logger.debug(f"\tMerge rule: {best}\n")
+            train_dict = self.merge_vocab(best, train_dict)
+            self.vocab["".join(best)] = self.base_vocab_size + i
+
+        logger.debug(f"End vocab: {self.vocab}")
+
+    def break_into_subwords(self, word: str) -> List[str]:
+        """Break unknown words into subwords by finding the longest subword that is in the vocab
+        and then recursively processing the rest of the word.
+
+        Args:
+            word (str): a word that does not belong in the vocabulary
+
+        Returns:
+            List[str]: a list of subwords
+        """
+        subwords = []
+        while word:
+            # find the longest subword
+            for i in range(len(word), 0, -1):
+                subword = word[:i]
+                if subword in self.vocab or i == 1:
+                    subwords.append(subword)
+                    word = word[i:]
+                    break
+        return subwords
 
     def tokenize(self, text: str) -> List[Optional[int]]:
         clean_text = self.pre_tokenize(self.normalize(text)).split()
@@ -70,79 +156,6 @@ class BPE(BaseTokenizer):
                 detokenized_string += self.vocab.inv[index]
 
         return detokenized_string.lstrip()
-
-    def break_into_subwords(self, word: str) -> List[str]:
-        """Break unknown words into subwords by finding the longest subword that is in the vocab
-        and then recursively processing the rest of the word.
-
-        Args:
-            word (str): a word that does not belong in the vocabulary
-
-        Returns:
-            List[str]: a list of subwords
-        """
-        subwords = []
-        while word:
-            # find the longest subword
-            for i in range(len(word), 0, -1):
-                subword = word[:i]
-                if subword in self.vocab or i == 1:
-                    subwords.append(subword)
-                    word = word[i:]
-                    break
-        return subwords
-
-    def create_vocab(self) -> None:
-        # combine special tokens and base vocabulary
-        combined_vocab = self.special_tokens + list(self.base_vocab)
-
-        # create the vocabulary as an invertible mapping: char <=> index
-        self.vocab = InvertibleDict(
-            {char: index for index, char in enumerate(combined_vocab)}
-        )
-
-    @property
-    def get_vocab(self) -> InvertibleDict[Any, int]:
-        return self.vocab
-
-    def __len__(self) -> int:
-        return len(self.vocab)
-
-    def train(self, corpus: str):
-        # normalize the corpus
-        corpus = self.normalize(corpus)
-
-        # remove white spaces
-        corpus = self.pre_tokenize(corpus)
-
-        # create a dictionary of counts
-        train_dict = Counter(corpus.split())
-        train_dict = Counter(
-            {" ".join(list(k) + [SPACE]): v for k, v in train_dict.items()}
-        )
-
-        for i in range(self.num_merges):
-            pairs = self.get_stats(train_dict)
-            best = max(pairs, key=pairs.get)
-            train_dict = self.merge_vocab(best, train_dict)
-            self.vocab["".join(best)] = self.base_vocab_size + i
-
-    def get_stats(self, train_dict):
-        pairs = defaultdict(int)
-        for word, freq in train_dict.items():
-            symbols = word.split()
-            for i in range(len(symbols) - 1):
-                pairs[symbols[i], symbols[i + 1]] += freq
-        return pairs
-
-    def merge_vocab(self, pair, v_in):
-        v_out = {}
-        bigram = re.escape(" ".join(pair))
-        p = re.compile(r"(?<!\S)" + bigram + r"(?!\S)")
-        for word in v_in:
-            w_out = p.sub("".join(pair), word)
-            v_out[w_out] = v_in[word]
-        return v_out
 
     def save(self, filename, overwrite=False):
         if exists(filename) and not overwrite:
