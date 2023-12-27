@@ -6,9 +6,7 @@ from src.tokenizers.utils import InvertibleDict, InvertibleDictEncoder
 
 VOCAB_SIZE = 16  # ~ to 16-12 = 4 merges
 
-cfg = BPEConfig()
-cfg.base_vocab = "bghnpsu"
-cfg.vocab_size = VOCAB_SIZE
+cfg = BPEConfig(base_vocab="bghnpsu", vocab_size=VOCAB_SIZE)
 corpus = "hug " * 10 + "pug " * 5 + "pun " * 12 + "bun " * 4 + "hugs " * 5
 
 bpe = BPE(cfg)
@@ -129,3 +127,9 @@ def test_detokenize():
     detokenized_texts = [bpe.detokenize(token_ids) for token_ids in token_id_sequences]
 
     assert detokenized_texts == expected_texts
+
+
+def test_config():
+    cfg = BPEConfig(base_vocab="bghnpsu", vocab_size=13)
+    bpe = BPE(cfg)
+    assert (bpe.base_vocab == "bghnpsu") & (bpe.vocab_size == 13)

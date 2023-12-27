@@ -3,6 +3,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 
+from .constants import SPACE
 from .utils import InvertibleDict
 
 
@@ -54,7 +55,7 @@ class BaseTokenizer(ABC):
 
     def pre_tokenize(self, text: str) -> str:
         text = re.sub(r"\s+", " ", text)
-        text = text.replace(" ", "Ġ")
+        text = text.replace(" ", f"{SPACE} ")
         return text
 
     def normalize(self, text: str) -> str:

@@ -6,16 +6,15 @@ from os.path import exists
 from typing import Any, List, Optional
 
 from .base import BaseTokenizer
+from .constants import BOS, EOS, PAD, SPACE, UNK
 from .utils import InvertibleDict, InvertibleDictEncoder
 
-VOCAB_SIZE = 13
 
-
-@dataclass()
+@dataclass
 class BPEConfig:
-    vocab_size: int = VOCAB_SIZE
-    special_tokens = ["<unk>", "<pad>", "<bos>", "<eos>", "Ġ"]
-    base_vocab: str = "bghnpsu"
+    vocab_size: int
+    special_tokens = [UNK, PAD, BOS, EOS, SPACE]
+    base_vocab: str
 
 
 class BPE(BaseTokenizer):
@@ -29,10 +28,11 @@ class BPE(BaseTokenizer):
 
     def tokenize(self, text: str) -> List[Optional[int]]:
         clean_text = self.pre_tokenize(self.normalize(text)).split()
+        print(clean_text)
         tokens = []
 
         # prepend a bos token at the start
-        tokens.append(self.vocab.get("<bos>"))
+        tokens.append(self.vocab.get(BOS))
 
         while clean_text:
             word = clean_text.pop(0)
@@ -46,24 +46,23 @@ class BPE(BaseTokenizer):
                         tokens.append(self.vocab[subword])
                     else:
                         # handle subwords that are still unknown
-                        unknown_token_index = self.vocab.get("<unk>")
+                        unknown_token_index = self.vocab.get(UNK)
                         if unknown_token_index is not None:
                             tokens.append(unknown_token_index)
 
         # append a eos token at the end
-        tokens.append(self.vocab.get("<eos>"))
+        tokens.append(self.vocab.get(EOS))
 
         return tokens
 
     def detokenize(self, inputs: List[int]) -> str:
-        BOS_INDEX = self.vocab["<bos>"]
-        EOS_INDEX = self.vocab["<eos>"]
-        SPACE_INDEX = self.vocab["Ġ"]
+        BOS_EOS = (self.vocab[BOS], self.vocab[EOS])
+        SPACE_INDEX = self.vocab[SPACE]
 
         detokenized_string = ""
 
         for index in inputs:
-            if index in (BOS_INDEX, EOS_INDEX):
+            if index in BOS_EOS:
                 continue
             if index == SPACE_INDEX:
                 detokenized_string += " "
@@ -118,20 +117,15 @@ class BPE(BaseTokenizer):
 
         # create a dictionary of counts
         train_dict = Counter(corpus.split())
-        train_dict = Counter({" ".join(list(k)): v for k, v in train_dict.items()})
-        print(train_dict)
+        train_dict = Counter(
+            {" ".join(list(k) + [SPACE]): v for k, v in train_dict.items()}
+        )
 
-        print(f"{self.num_merges=}")
         for i in range(self.num_merges):
             pairs = self.get_stats(train_dict)
             best = max(pairs, key=pairs.get)
             train_dict = self.merge_vocab(best, train_dict)
             self.vocab["".join(best)] = self.base_vocab_size + i
-            print("----------------------")
-            print(train_dict)
-            print("----------------------")
-
-        print(self.vocab)
 
     def get_stats(self, train_dict):
         pairs = defaultdict(int)
@@ -170,11 +164,3 @@ class BPE(BaseTokenizer):
                 self.vocab = InvertibleDict(forward_dict)
         except Exception as e:
             raise IOError(f"An I/O error occurred while reading {filename} : {str(e)}")
-
-
-if __name__ == "__main__":
-    cfg = BPEConfig()
-    bpe = BPE(cfg)
-    corpus = "hug " * 10 + "pug " * 5 + "pun " * 12 + "bun " * 4 + "hugs " * 5
-
-    bpe.train(corpus)
