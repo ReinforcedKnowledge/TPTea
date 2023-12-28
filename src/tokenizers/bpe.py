@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from os.path import exists
 from typing import Any, List, Optional
 
+from tqdm import tqdm  # type: ignore
+
 from .base import BaseTokenizer
 from .constants import BOS, EOS, PAD, SPACE, UNK
 from .utils import InvertibleDict, InvertibleDictEncoder, setup_logger
@@ -81,7 +83,7 @@ class BPE(BaseTokenizer):
         logger.debug(f"Train dict: {train_dict}")
         logger.debug(f"Starting vocab: {self.vocab}\n")
 
-        for i in range(self.num_merges):
+        for i in tqdm(range(self.num_merges)):
             logger.debug(f"Merge num: {i}")
             pairs = self.get_stats(train_dict)
             logger.debug(f"\tUpdated pairs frequencies: {pairs}")
@@ -117,7 +119,6 @@ class BPE(BaseTokenizer):
         self, text: str
     ) -> List[Optional[int]]:  # TODO: Check why optional is needed with mypy
         clean_text = self.pre_tokenize(self.normalize(text)).split()
-        print(clean_text)
         tokens = []
 
         # prepend a bos token at the start
@@ -159,8 +160,10 @@ class BPE(BaseTokenizer):
         for index in inputs:
             if index in BOS_EOS:
                 continue
-            if index == SPACE_INDEX:
+            elif index == SPACE_INDEX:
                 detokenized_string += " "
+            elif self.vocab.inv[index].endswith(f"{SPACE}"):
+                detokenized_string += self.vocab.inv[index][:-1] + " "
             else:
                 detokenized_string += self.vocab.inv[index]
 

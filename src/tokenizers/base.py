@@ -54,6 +54,7 @@ class BaseTokenizer(ABC):
     def __len__(self) -> int:
         raise NotImplementedError()
 
+    # TODO: integrate punctuation
     def pre_tokenize(self, text: str) -> str:
         text = re.sub(r"\s+", " ", text)
         text = text.replace(" ", f"{SPACE} ")

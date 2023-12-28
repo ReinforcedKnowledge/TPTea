@@ -125,30 +125,13 @@ class TestBPE:
         assert token_ids == expected_token_ids
 
     def test_detokenize(self):
-        token_sequences = [
-            ["<bos>", "b", "ug", "<eos>"],
-            ["<bos>", "<unk>", "ug", "<eos>"],
-            [
-                "<bos>",
-                "b",
-                "ug",
-                "Ġ",
-                "<unk>",
-                "ug",
-                "Ġ",
-                "hug",
-                "Ġ",
-                "hug",
-                "s",
-                "<unk>",
-                "<eos>",
-            ],
+        token_id_sequences = [
+            [2, 5, 12, 3],
+            [2, 0, 12, 3],
+            [2, 5, 12, 4, 0, 12, 4, 15, 4, 15, 10, 0, 3],
         ]
         expected_texts = ["bug", "<unk>ug", "bug <unk>ug hug hugs<unk>"]
 
-        token_id_sequences = [
-            [self.bpe.vocab[t] for t in tokens] for tokens in token_sequences
-        ]
         detokenized_texts = [
             self.bpe.detokenize(token_ids) for token_ids in token_id_sequences
         ]
@@ -156,30 +139,13 @@ class TestBPE:
         assert detokenized_texts == expected_texts
 
     def test_detokenize_batch(self):
-        token_sequences = [
-            ["<bos>", "b", "ug", "<eos>"],
-            ["<bos>", "<unk>", "ug", "<eos>"],
-            [
-                "<bos>",
-                "b",
-                "ug",
-                "Ġ",
-                "<unk>",
-                "ug",
-                "Ġ",
-                "hug",
-                "Ġ",
-                "hug",
-                "s",
-                "<unk>",
-                "<eos>",
-            ],
+        token_id_sequences = [
+            [2, 5, 12, 3],
+            [2, 0, 12, 3],
+            [2, 5, 12, 4, 0, 12, 4, 15, 4, 15, 10, 0, 3],
         ]
         expected_texts = ["bug", "<unk>ug", "bug <unk>ug hug hugs<unk>"]
 
-        token_id_sequences = [
-            [self.bpe.vocab[t] for t in tokens] for tokens in token_sequences
-        ]
         detokenized_texts = self.bpe.detokenize_batch(token_id_sequences)
 
         assert detokenized_texts == expected_texts
