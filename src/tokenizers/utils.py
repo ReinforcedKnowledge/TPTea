@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import MutableMapping
 from typing import Any, Dict, Optional, TypeVar
 
@@ -102,3 +103,25 @@ class InvertibleDictEncoder(json.JSONEncoder):
         if isinstance(o, InvertibleDict):
             return o.get_forward_dict()
         return json.JSONEncoder.default(self, o)
+
+
+def setup_logger(name, level=logging.INFO):
+    # Create a logger
+    logger = logging.getLogger(name)
+
+    # Set the logging level based on the provided parameter
+    logger.setLevel(level)
+
+    # Create a console handler
+    handler = logging.StreamHandler()
+
+    # Create a formatter and set it for the handler
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+
+    # Add the handler to the logger
+    logger.addHandler(handler)
+
+    return logger
