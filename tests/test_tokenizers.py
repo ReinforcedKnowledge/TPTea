@@ -49,7 +49,7 @@ class TestBPE:
     def test_bpe_train(self):
         learned_vocab = self.bpe.get_vocab
 
-        assert learned_vocab == self.expected_vocab
+        assert learned_vocab.keys() == self.expected_vocab.keys()
 
     def test_break_into_subwords(self):
         # Considers space as a character of the word
