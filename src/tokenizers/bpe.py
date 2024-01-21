@@ -1,19 +1,20 @@
 import json
-import logging
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from os.path import exists
 from typing import Any, List, Optional
 
+from memory_profiler import profile
 from tqdm import tqdm  # type: ignore
 
 from .base import BaseTokenizer
 from .constants import BOS, EOS, PAD, SPACE, UNK
-from .utils import InvertibleDict, InvertibleDictEncoder, setup_logger
+from .utils import InvertibleDict, InvertibleDictEncoder
 
-logger = setup_logger("logger", logging.ERROR)
+# logger = setup_logger("logger", logging.ERROR)
 
 
 @dataclass
@@ -65,34 +66,41 @@ class BPE(BaseTokenizer):
             v_out[w_out] = v_in[word]
         return v_out
 
-    def train(self, corpus: str, debug: bool = False):
-        if debug:
-            logger.setLevel(logging.DEBUG)
-
-        # normalize the corpus
+    def process_string_corpus(self, corpus: str) -> Counter[str, int]:
         corpus = self.normalize(corpus)
-        logger.debug(f"Normalized corpus: {corpus}")
-
-        # remove white spaces
         corpus = self.pre_tokenize(corpus)
-        logger.debug(f"Pretokenized corpus: {corpus}")
+        return Counter(
+            {" ".join(list(k)): v for k, v in Counter(corpus.split()).items()}
+        )
 
-        # create a dictionary of counts
-        train_dict = Counter(corpus.split())
-        train_dict = Counter({" ".join(list(k)): v for k, v in train_dict.items()})
-        logger.debug(f"Train dict: {train_dict}")
-        logger.debug(f"Starting vocab: {self.vocab}\n")
+    @profile
+    def train(self, corpus: Iterable, num_threads: int = 4, debug: bool = False):
+        # if debug:
+        # logger.setLevel(logging.DEBUG)
+
+        if isinstance(corpus, str):
+            train_dict = self.process_string_corpus(corpus)
+
+        else:
+            train_dict = Counter()
+            with ThreadPoolExecutor(max_workers=num_threads) as e:
+                corpora = e.map(self.process_string_corpus, corpus)
+                for processed_corpus in corpora:
+                    train_dict.update(processed_corpus)
+        print(train_dict)
+
+        # logger.debug(f"Starting vocab: {self.vocab}\n")
 
         for i in tqdm(range(self.num_merges)):
-            logger.debug(f"Merge num: {i}")
+            # logger.debug(f"Merge num: {i}")
             pairs = self.get_stats(train_dict)
-            logger.debug(f"\tUpdated pairs frequencies: {pairs}")
+            # logger.debug(f"\tUpdated pairs frequencies: {pairs}")
             best = max(pairs, key=pairs.get)
-            logger.debug(f"\tMerge rule: {best}\n")
+            # logger.debug(f"\tMerge rule: {best}\n")
             train_dict = self.merge_vocab(best, train_dict)
             self.vocab["".join(best)] = self.base_vocab_size + i
 
-        logger.debug(f"End vocab: {self.vocab}")
+        # logger.debug(f"End vocab: {self.vocab}")
 
     def break_into_subwords(self, word: str) -> List[str]:
         """Break unknown words into subwords by finding the longest subword that is in the vocab
@@ -162,10 +170,10 @@ class BPE(BaseTokenizer):
                 continue
             elif index == SPACE_INDEX:
                 detokenized_string += " "
-            elif self.vocab.inv[index].endswith(f"{SPACE}"):
-                detokenized_string += self.vocab.inv[index][:-1] + " "
+            elif self.vocab.inv(index).endswith(f"{SPACE}"):
+                detokenized_string += self.vocab.inv(index)[:-1] + " "
             else:
-                detokenized_string += self.vocab.inv[index]
+                detokenized_string += self.vocab.inv(index)
 
         return detokenized_string.lstrip()
 
