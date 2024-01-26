@@ -62,7 +62,7 @@ class TestBPE:
             ["n", "unĠ", "e", "t", "s"],
         ]
 
-        tokens = [self.bpe.break_into_subwords(text) for text in texts]
+        tokens = [self.bpe._break_into_subwords(text) for text in texts]
 
         assert tokens == expected_tokens
 

@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from os.path import exists
 from typing import Any, Dict, List, Optional, Tuple
 
-from tqdm import tqdm  # type: ignore
-
 from .base import BaseTokenizer
 from .constants import BOS, EOS, PAD, SPACE, UNK
 from .utils import InvertibleDict, InvertibleDictEncoder
@@ -68,6 +66,7 @@ class BPE(BaseTokenizer):
             for pair in linked_pairs:
                 pairs_dict.setdefault(pair, [0, set()])[0] += word_freq
                 pairs_dict[pair][1].add(id)
+        return pairs_dict
 
     def _create_words_and_pairs_dicts(self, train_dict):
         words_dict = self._create_words_dict(train_dict)
@@ -141,7 +140,7 @@ class BPE(BaseTokenizer):
         return self._create_words_and_pairs_dicts(train_dict)
 
     def _train_loop(self, train_dict: Dict, pairs_dict: Dict, num_merges: int):
-        for i in tqdm(range(num_merges)):
+        for i in range(num_merges):
             best = max(pairs_dict, key=lambda pair: pairs_dict[pair][0])
             self.vocab["".join(best)] = self.base_vocab_size + i
             self._merge_pairs(train_dict, pairs_dict, best)
