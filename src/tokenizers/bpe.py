@@ -53,11 +53,8 @@ class BPE(BaseTokenizer):
         )
 
     def create_pairs_from_symbols(self, symbols):
-        pairs = []
         symbols = symbols.split()
-        for i in range(len(symbols) - 1):
-            pairs.append((symbols[i], symbols[i + 1]))
-        return pairs
+        return [(symbols[i], symbols[i + 1]) for i in range(len(symbols) - 1)]
 
     def create_words_and_pairs_dicts(self, train_dict):
         words_dict = {}
