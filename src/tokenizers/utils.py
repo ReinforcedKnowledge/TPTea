@@ -78,7 +78,6 @@ class InvertibleDict(MutableMapping[KT, VT]):
     def _raise_non_invertible(self, key1: KT, key2: KT, value: VT):
         raise ValueError(f"non-invertible: {key1}, {key2} both map to: {value}")
 
-    @property
     def inv(self, value: VT) -> KT:
         return self._backward[value]
 
