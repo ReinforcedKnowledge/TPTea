@@ -30,31 +30,56 @@ class InvertibleDict(MutableMapping[KT, VT]):
         *,
         _backward: Optional[Dict[VT, KT]] = None,
     ):
-        if forward is None:
+        if (forward is None) and (_backward is None):
             self._forward = {}
             self._backward = {}
-        elif _backward is not None:
+        elif (forward is not None) and (_backward is not None):
+            self._check_non_invertible()
             self._forward = forward
             self._backward = _backward
         else:
-            self._forward = forward
-            self._backward = {value: key for key, value in self._forward.items()}
-            self._check_non_invertible()
+            if forward is not None:
+                self._forward = forward
+                self._backward = {value: key for key, value in self._forward.items()}
+            else:
+                self._backward = _backward
+                self._forward = {value: key for key, value in self._backward.items()}
 
     def _check_non_invertible(self):
-        if len(self._backward) != len(self._forward):
-            for key, value in self._forward.items():
-                other_key = self._backward.get(value, None)
-                if other_key is not None and other_key != key:
-                    self._raise_non_invertible(key, other_key, value)
+        # Check if the sizes match, accounting for None values
+        forward_none_keys = {k for k, v in self._forward.items() if v is None}
+        backward_none_keys = {k for k, v in self._backward.items() if v is None}
+
+        if len(self._forward) - len(forward_none_keys) != len(self._backward) - len(
+            backward_none_keys
+        ):
+            raise ValueError("The dictionaries do not form a perfect 1-to-1 mapping.")
+
+        # Check each item in _forward
+        for key, value in self._forward.items():
+            if value is not None:
+                if self._backward.get(value, None) != key:
+                    self._raise_non_invertible(key, value)
+            else:
+                # If the value is None, it's okay for _backward to either not have the key or have it with a None value
+                if key not in backward_none_keys and key in self._backward:
+                    self._raise_non_invertible(key, value)
+
+        # Check each item in _backward
+        for key, value in self._backward.items():
+            if value is not None:
+                if self._forward.get(value, None) != key:
+                    self._raise_non_invertible(value, key)
+            else:
+                # If the value is None, it's okay for _forward to either not have the key or have it with a None value
+                if key not in forward_none_keys and key in self._forward:
+                    self._raise_non_invertible(value, key)
 
     def _raise_non_invertible(self, key1: KT, key2: KT, value: VT):
         raise ValueError(f"non-invertible: {key1}, {key2} both map to: {value}")
 
-    @property
-    def inv(self) -> InvertibleDict[VT, KT]:
-        """A mutable view of the inverse dict."""
-        return InvertibleDict(self._backward, _backward=self._forward)
+    def inv(self, value: VT) -> KT:
+        return self._backward[value]
 
     def __getitem__(self, item: KT) -> VT:
         return self._forward[item]
@@ -95,6 +120,9 @@ class InvertibleDict(MutableMapping[KT, VT]):
 
     def get_forward_dict(self) -> Dict[KT, VT]:
         return dict(self._forward)
+
+    def get_backward_dict(self) -> Dict[KT, VT]:
+        return dict(self._backward)
 
 
 # for saving Invertible dict with JSON

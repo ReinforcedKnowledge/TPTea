@@ -1,19 +1,14 @@
 import json
-import logging
-import re
-from collections import Counter, defaultdict
+from collections import Counter
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from os.path import exists
-from typing import Any, List, Optional
-
-from tqdm import tqdm  # type: ignore
+from typing import Any, Dict, List, Optional, Tuple
 
 from .base import BaseTokenizer
 from .constants import BOS, EOS, PAD, SPACE, UNK
-from .utils import InvertibleDict, InvertibleDictEncoder, setup_logger
-
-logger = setup_logger("logger", logging.ERROR)
+from .utils import InvertibleDict, InvertibleDictEncoder
 
 
 @dataclass
@@ -30,12 +25,12 @@ class BPE(BaseTokenizer):
         self.base_vocab = config.base_vocab
         self.base_vocab_size = len(self.base_vocab) + len(self.special_tokens)
         self.num_merges = self.vocab_size - self.base_vocab_size
-        self.create_vocab()
+        self._create_vocab()
 
     def __len__(self) -> int:
         return len(self.vocab)
 
-    def create_vocab(self) -> None:
+    def _create_vocab(self) -> None:
         # combine special tokens and base vocabulary
         combined_vocab = self.special_tokens + list(self.base_vocab)
 
@@ -48,53 +43,114 @@ class BPE(BaseTokenizer):
     def get_vocab(self) -> InvertibleDict[Any, int]:
         return self.vocab
 
-    def get_stats(self, train_dict):
-        pairs = defaultdict(int)
-        for word, freq in train_dict.items():
-            symbols = word.split()
-            for i in range(len(symbols) - 1):
-                pairs[symbols[i], symbols[i + 1]] += freq
-        return pairs
-
-    def merge_vocab(self, pair, v_in):
-        v_out = {}
-        bigram = re.escape(" ".join(pair))
-        p = re.compile(r"(?<!\S)" + bigram + r"(?!\S)")
-        for word in v_in:
-            w_out = p.sub("".join(pair), word)
-            v_out[w_out] = v_in[word]
-        return v_out
-
-    def train(self, corpus: str, debug: bool = False):
-        if debug:
-            logger.setLevel(logging.DEBUG)
-
-        # normalize the corpus
+    def _get_corpus_words_frequencies(self, corpus: str) -> Counter[str, int]:
         corpus = self.normalize(corpus)
-        logger.debug(f"Normalized corpus: {corpus}")
-
-        # remove white spaces
         corpus = self.pre_tokenize(corpus)
-        logger.debug(f"Pretokenized corpus: {corpus}")
+        return Counter(
+            {" ".join(list(k)): v for k, v in Counter(corpus.split()).items()}
+        )
 
-        # create a dictionary of counts
-        train_dict = Counter(corpus.split())
-        train_dict = Counter({" ".join(list(k)): v for k, v in train_dict.items()})
-        logger.debug(f"Train dict: {train_dict}")
-        logger.debug(f"Starting vocab: {self.vocab}\n")
+    def _create_pairs_from_symbols(self, symbols):
+        symbols = symbols.split()
+        return [(symbols[i], symbols[i + 1]) for i in range(len(symbols) - 1)]
 
-        for i in tqdm(range(self.num_merges)):
-            logger.debug(f"Merge num: {i}")
-            pairs = self.get_stats(train_dict)
-            logger.debug(f"\tUpdated pairs frequencies: {pairs}")
-            best = max(pairs, key=pairs.get)
-            logger.debug(f"\tMerge rule: {best}\n")
-            train_dict = self.merge_vocab(best, train_dict)
+    def _create_words_dict(self, train_dict):
+        return {
+            id: [freq, self._create_pairs_from_symbols(word)]
+            for id, (word, freq) in enumerate(train_dict.items())
+        }
+
+    def _create_pairs_dicts(self, words_dict):
+        pairs_dict = {}
+        for id, (word_freq, linked_pairs) in words_dict.items():
+            for pair in linked_pairs:
+                pairs_dict.setdefault(pair, [0, set()])[0] += word_freq
+                pairs_dict[pair][1].add(id)
+        return pairs_dict
+
+    def _create_words_and_pairs_dicts(self, train_dict):
+        words_dict = self._create_words_dict(train_dict)
+        pairs_dict = self._create_pairs_dicts(words_dict)
+        return words_dict, pairs_dict
+
+    def _update_pairs_dict(self, pairs_dict, pair, freq_change, word_id):
+        if pair in pairs_dict:
+            pairs_dict[pair][0] += freq_change
+            if freq_change > 0:  # If we are adding frequency, add the word ID
+                pairs_dict[pair][1].add(word_id)
+            if (
+                pairs_dict[pair][0] <= 0
+            ):  # If frequency is zero or less, delete the pair
+                del pairs_dict[pair]
+        else:
+            pairs_dict[pair] = (
+                [freq_change, {word_id}] if freq_change > 0 else [freq_change, set()]
+            )
+
+    def _merge_pairs(self, words_dict, pairs_dict, max_freq_pair):
+        max_freq_pair_merged = "".join(max_freq_pair)
+        for word_id in words_dict:
+            word_freq = words_dict[word_id][0]
+            pairs = words_dict[word_id][1]
+            new_pairs = []
+            i = 0
+            while i < len(pairs):
+                if pairs[i] == max_freq_pair:
+                    # Check for preceding pair
+                    if i > 0 and new_pairs:
+                        prev_pair = new_pairs[-1]
+                        new_pairs[-1] = (prev_pair[0], max_freq_pair_merged)
+                        self._update_pairs_dict(
+                            pairs_dict, prev_pair, -word_freq, word_id
+                        )
+                        self._update_pairs_dict(
+                            pairs_dict, new_pairs[-1], word_freq, word_id
+                        )
+                    # Check for following pair
+                    if i < len(pairs) - 1:
+                        next_pair = (max_freq_pair_merged, pairs[i + 1][1])
+                        new_pairs.append(next_pair)
+                        self._update_pairs_dict(
+                            pairs_dict, pairs[i + 1], -word_freq, word_id
+                        )
+                        self._update_pairs_dict(
+                            pairs_dict, next_pair, word_freq, word_id
+                        )
+                        i += 1  # Skip the next pair as it's now merged
+                else:
+                    new_pairs.append(pairs[i])
+                i += 1
+            words_dict[word_id][1] = new_pairs
+
+        # Delete max_freq_pair from pairs_dict
+        del pairs_dict[max_freq_pair]
+
+    def _preprocess_corpus(self, corpus: Iterable, num_threads: int) -> Counter:
+        if isinstance(corpus, str):
+            return self._get_corpus_words_frequencies(corpus)
+        else:
+            train_dict = Counter()
+            with ThreadPoolExecutor(max_workers=num_threads) as e:
+                corpora = e.map(self._get_corpus_words_frequencies, corpus)
+                for processed_corpus in corpora:
+                    train_dict.update(processed_corpus)
+            return train_dict
+
+    def _initialize_training(self, train_dict: Counter) -> Tuple[Dict, Dict]:
+        return self._create_words_and_pairs_dicts(train_dict)
+
+    def _train_loop(self, train_dict: Dict, pairs_dict: Dict, num_merges: int):
+        for i in range(num_merges):
+            best = max(pairs_dict, key=lambda pair: pairs_dict[pair][0])
             self.vocab["".join(best)] = self.base_vocab_size + i
+            self._merge_pairs(train_dict, pairs_dict, best)
 
-        logger.debug(f"End vocab: {self.vocab}")
+    def train(self, corpus: Iterable, num_threads: int = 4):
+        train_dict = self._preprocess_corpus(corpus, num_threads)
+        train_dict, pairs_dict = self._initialize_training(train_dict)
+        self._train_loop(train_dict, pairs_dict, self.num_merges)
 
-    def break_into_subwords(self, word: str) -> List[str]:
+    def _break_into_subwords(self, word: str) -> List[str]:
         """Break unknown words into subwords by finding the longest subword that is in the vocab
         and then recursively processing the rest of the word.
 
@@ -130,7 +186,7 @@ class BPE(BaseTokenizer):
                 tokens.append(self.vocab[word])
             else:
                 # handle unknown words by breaking them down into subwords
-                subwords = self.break_into_subwords(word)
+                subwords = self._break_into_subwords(word)
                 for subword in subwords:
                     if subword in self.vocab:
                         tokens.append(self.vocab[subword])
@@ -158,14 +214,17 @@ class BPE(BaseTokenizer):
         detokenized_string = ""
 
         for index in inputs:
+            print(f"Vocab: {self.vocab}")
+            print(f"Index: {index}")
+            print(f"Inv vocab: {self.vocab.get_backward_dict()}")
             if index in BOS_EOS:
                 continue
             elif index == SPACE_INDEX:
                 detokenized_string += " "
-            elif self.vocab.inv[index].endswith(f"{SPACE}"):
-                detokenized_string += self.vocab.inv[index][:-1] + " "
+            elif self.vocab.inv(index).endswith(f"{SPACE}"):
+                detokenized_string += self.vocab.inv(index)[:-1] + " "
             else:
-                detokenized_string += self.vocab.inv[index]
+                detokenized_string += self.vocab.inv(index)
 
         return detokenized_string.lstrip()
 
