@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# TODO: Weight tying
 # TODO: KV-caching
 # TODO: Flash attention
 # TODO: Grouped Multi-Query Attention
@@ -141,7 +140,7 @@ class GPT2(nn.Module):
         self.ln_f = nn.LayerNorm(config.n_embed)
 
         self.head = nn.Linear(config.n_embed, config.vocab_size, bias=False)
-        self.head.weight = self.tok_emb.weight  # Weight sharing
+        self.head.weight = self.tok_emb.weight
 
         self.apply(self.config.initialization)
 
