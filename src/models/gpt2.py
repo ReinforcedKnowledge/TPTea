@@ -149,8 +149,3 @@ class GPT2(nn.Module):
         x = self.ln_f(x)
         logits = self.head(x)
         return logits
-
-
-gpt2_config = GPT2Config()
-gpt2 = GPT2(gpt2_config)
-print(gpt2)
