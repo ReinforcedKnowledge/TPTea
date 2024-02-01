@@ -6,10 +6,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# TODO: KV-caching
-# TODO: Flash attention
-# TODO: Grouped Multi-Query Attention
-
 
 def gpt2_initialization(model):
     # Each block contains two residual layers, the multi-head attention and the MLP
