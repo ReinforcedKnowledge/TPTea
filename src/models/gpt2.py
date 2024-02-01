@@ -8,14 +8,23 @@ from torch.nn import functional as F
 
 
 def gpt2_initialization(model):
-    for module in model.modules():
-        if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
+    # Each block contains two residual layers, the multi-head attention and the MLP
+    n_res_layers = 2 * model.config.n_layer
+    scale = 1 / math.sqrt(n_res_layers**0.5)
+
+    for name, param in model.named_parameters():
+        if "weight" in name and "ln" not in name:
+            if (
+                "attn" in name or "mlp" in name
+            ):  # Scale weights for attention and MLP layers
+                nn.init.normal_(param.data, mean=0.0, std=0.02 * scale)
+            else:  # Do not scale embeddings or other layers, which are not residual layers
+                nn.init.normal_(param.data, mean=0.0, std=0.02)
+        elif "bias" in name:
+            nn.init.constant_(param.data, 0)
+        elif "ln" in name:  # LayerNorm layers initialization
+            param.bias.data.zero_()
+            param.weight.data.fill_(1.0)
     return model
 
 
@@ -34,6 +43,7 @@ class GPT2Config:
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.config = config
         self.key = nn.Linear(config.n_embd, config.n_embd)
         self.query = nn.Linear(config.n_embd, config.n_embd)
         self.value = nn.Linear(config.n_embd, config.n_embd)
@@ -91,7 +101,7 @@ class CausalSelfAttention(nn.Module):
         attn = F.softmax(attn, dim=-1)
         attn = self.dropout(attn)
 
-        # Combine the heads back to the original tensor shape
+        # Apply attention to the value and combine the heads back to the original tensor shape
         y = (
             (attn @ v)
             .transpose(1, 2)
@@ -109,13 +119,11 @@ class MLP(nn.Module):
         self.fc1 = nn.Linear(config.n_embd, 4 * config.n_embd)
         self.fc2 = nn.Linear(4 * config.n_embd, config.n_embd)
         self.act = nn.GELU()
-        self.dropout = nn.Dropout(0.1)
 
     def forward(self, x):
         x = self.fc1(x)
         x = self.act(x)
-        x = self.fc2(x)
-        return self.dropout(x)
+        return self.fc2(x)
 
 
 # Transformer Block
@@ -128,8 +136,8 @@ class Block(nn.Module):
         self.mlp = MLP(config)
 
     def forward(self, x):
-        x = x + self.attn(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
+        x = x + self.dropout(self.attn(self.ln1(x)))
+        x = x + self.dropout(self.mlp(self.ln2(x)))
         return x
 
 
@@ -149,16 +157,11 @@ class GPT2(nn.Module):
         self.apply(self.config.initialization)
 
     def forward(self, idx):
-        B, T = idx.size()
+        _, sequence_length = idx.size()
         token_embeddings = self.tok_emb(idx)
-        position_embeddings = self.pos_emb[:, :T, :]
+        position_embeddings = self.pos_emb[:, :sequence_length, :]
         x = self.drop(token_embeddings + position_embeddings)
         x = self.blocks(x)
         x = self.ln_f(x)
         logits = self.head(x)
         return logits
-
-
-# Example instantiation of the model
-config = GPT2Config()
-model = GPT2(config)
