@@ -36,9 +36,8 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.key = nn.Linear(config.n_embd, config.n_embd)
-        self.query = nn.Linear(config.n_embd, config.n_embd)
-        self.value = nn.Linear(config.n_embd, config.n_embd)
+        # Combining key, query, and value in a single matrix
+        self.key_query_value = nn.Linear(config.n_embd, 3 * config.n_embd)
         self.proj = nn.Linear(config.n_embd, config.n_embd)
         self.dropout = nn.Dropout(0.1)
 
@@ -53,37 +52,20 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x):
         batch_size, sequence_length, embed_size = x.size()
 
-        # Calculate query, key, values for all heads in batch and transform shape
-        k = (
-            self.key(x)
-            .view(
+        # Project to key, query, value in a single pass
+        kqv = self.key_query_value(x)
+        k, q, v = kqv.split(embed_size, dim=-1)
+
+        # Reshape for multi-head attention
+        def reshape_to_heads(tensor):
+            return tensor.view(
                 batch_size,
                 sequence_length,
                 self.config.n_head,
                 embed_size // self.config.n_head,
-            )
-            .transpose(1, 2)
-        )
-        q = (
-            self.query(x)
-            .view(
-                batch_size,
-                sequence_length,
-                self.config.n_head,
-                embed_size // self.config.n_head,
-            )
-            .transpose(1, 2)
-        )
-        v = (
-            self.value(x)
-            .view(
-                batch_size,
-                sequence_length,
-                self.config.n_head,
-                embed_size // self.config.n_head,
-            )
-            .transpose(1, 2)
-        )
+            ).transpose(1, 2)
+
+        k, q, v = map(reshape_to_heads, [k, q, v])
 
         # Scaled dot product attention
         attn = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -145,6 +127,7 @@ class GPT1(nn.Module):
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
 
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.head.weight = self.tok_emb.weight
 
         self.apply(self.config.initialization)
 

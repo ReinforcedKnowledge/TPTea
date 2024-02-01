@@ -6,14 +6,19 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+# TODO: Weight tying
+# TODO: KV-caching
+# TODO: Flash attention
+# TODO: Grouped Multi-Query Attention
+
 
 def gpt2_initialization(model):
     # Each block contains two residual layers, the multi-head attention and the MLP
-    n_res_layers = 2 * model.config.n_layer
+    n_res_layers = 2 * 12  # n_layer
     scale = 1 / math.sqrt(n_res_layers**0.5)
 
     for name, param in model.named_parameters():
-        if "weight" in name and "ln" not in name:
+        if "weight" in name and "ln" not in name:  # Issue with nn.Parameter
             if (
                 "attn" in name or "mlp" in name
             ):  # Scale weights for attention and MLP layers
@@ -22,7 +27,7 @@ def gpt2_initialization(model):
                 nn.init.normal_(param.data, mean=0.0, std=0.02)
         elif "bias" in name:
             nn.init.constant_(param.data, 0)
-        elif "ln" in name:  # LayerNorm layers initialization
+        elif isinstance(param, nn.LayerNorm):  # LayerNorm layers initialization
             param.bias.data.zero_()
             param.weight.data.fill_(1.0)
     return model
@@ -35,7 +40,7 @@ class GPT2Config:
     block_size: int = 1024
     n_layer: int = 12
     n_head: int = 12
-    n_embd: int = 768
+    n_embed: int = 768
     initialization: Optional[Callable] = gpt2_initialization
 
 
@@ -44,10 +49,9 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.key = nn.Linear(config.n_embd, config.n_embd)
-        self.query = nn.Linear(config.n_embd, config.n_embd)
-        self.value = nn.Linear(config.n_embd, config.n_embd)
-        self.proj = nn.Linear(config.n_embd, config.n_embd)
+        # Combining key, query, and value in a single matrix
+        self.key_query_value = nn.Linear(config.n_embed, 3 * config.n_embed)
+        self.proj = nn.Linear(config.n_embed, config.n_embed)
         self.dropout = nn.Dropout(0.1)
 
         # Make the causal mask a part of the module's state through register_buffer ensures
@@ -61,37 +65,20 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x):
         batch_size, sequence_length, embed_size = x.size()
 
-        # Calculate query, key, values for all heads in batch and transform shape
-        k = (
-            self.key(x)
-            .view(
+        # Project to key, query, value in a single pass
+        kqv = self.key_query_value(x)
+        k, q, v = kqv.split(embed_size, dim=-1)
+
+        # Reshape for multi-head attention
+        def reshape_to_heads(tensor):
+            return tensor.view(
                 batch_size,
                 sequence_length,
                 self.config.n_head,
                 embed_size // self.config.n_head,
-            )
-            .transpose(1, 2)
-        )
-        q = (
-            self.query(x)
-            .view(
-                batch_size,
-                sequence_length,
-                self.config.n_head,
-                embed_size // self.config.n_head,
-            )
-            .transpose(1, 2)
-        )
-        v = (
-            self.value(x)
-            .view(
-                batch_size,
-                sequence_length,
-                self.config.n_head,
-                embed_size // self.config.n_head,
-            )
-            .transpose(1, 2)
-        )
+            ).transpose(1, 2)
+
+        k, q, v = map(reshape_to_heads, [k, q, v])
 
         # Scaled dot product attention
         attn = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -116,8 +103,8 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.fc1 = nn.Linear(config.n_embd, 4 * config.n_embd)
-        self.fc2 = nn.Linear(4 * config.n_embd, config.n_embd)
+        self.fc1 = nn.Linear(config.n_embed, 4 * config.n_embed)
+        self.fc2 = nn.Linear(4 * config.n_embed, config.n_embed)
         self.act = nn.GELU()
 
     def forward(self, x):
@@ -130,10 +117,11 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.ln1 = nn.LayerNorm(config.n_embd)
-        self.ln2 = nn.LayerNorm(config.n_embd)
+        self.ln1 = nn.LayerNorm(config.n_embed)
+        self.ln2 = nn.LayerNorm(config.n_embed)
         self.attn = CausalSelfAttention(config)
         self.mlp = MLP(config)
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, x):
         x = x + self.dropout(self.attn(self.ln1(x)))
@@ -146,13 +134,14 @@ class GPT2(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
+        self.tok_emb = nn.Embedding(config.vocab_size, config.n_embed)
+        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embed))
         self.drop = nn.Dropout(0.1)
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
-        self.ln_f = nn.LayerNorm(config.n_embd)
+        self.ln_f = nn.LayerNorm(config.n_embed)
 
-        self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.head = nn.Linear(config.n_embed, config.vocab_size, bias=False)
+        self.head.weight = self.tok_emb.weight  # Weight sharing
 
         self.apply(self.config.initialization)
 
@@ -165,3 +154,8 @@ class GPT2(nn.Module):
         x = self.ln_f(x)
         logits = self.head(x)
         return logits
+
+
+gpt2_config = GPT2Config()
+gpt2 = GPT2(gpt2_config)
+print(gpt2)
