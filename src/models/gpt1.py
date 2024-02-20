@@ -1,3 +1,8 @@
+"""
+We're trying to closely follow the descriptions provided in this paper: Radford, Alec and Karthik Narasimhan. “Improving Language Understanding by Generative Pre-Training.” (2018).
+The paper also talks about training and optimization. This will be implemented later as a training scheme. More details can be found on my blog: https://reinforcedknowledge.com
+"""
+
 import math
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -24,7 +29,7 @@ def gpt1_initialization(model):
 @dataclass
 class GPT1Config:
     vocab_size: int = 40478
-    block_size: int = 512
+    context_size: int = 512
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -44,8 +49,8 @@ class CausalSelfAttention(nn.Module):
         # Make the causal mask a part of the module's state through register_buffer ensures
         self.register_buffer(
             "mask",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
+            torch.tril(torch.ones(config.context_size, config.context_size)).view(
+                1, 1, config.context_size, config.context_size
             ),
         )
 
@@ -122,7 +127,7 @@ class GPT1(nn.Module):
         super().__init__()
         self.config = config
         self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
+        self.pos_emb = nn.Parameter(torch.zeros(1, config.context_size, config.n_embd))
         self.drop = nn.Dropout(0.1)
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
 
