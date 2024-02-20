@@ -1,10 +1,15 @@
+"""
+We're trying to closely follow the descriptions provided in this paper: Radford, Alec et al. “Language Models are Unsupervised Multitask Learners.” (2019).
+Notice when we apply the layer norm compared to GPT1.
+"""
+
 import math
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
+from causal_self_attention import CausalSelfAttention
 
 
 def gpt2_initialization(model):
@@ -32,66 +37,11 @@ def gpt2_initialization(model):
 @dataclass
 class GPT2Config:
     vocab_size: int = 50257
-    block_size: int = 1024
+    context_size: int = 1024
     n_layer: int = 12
     n_head: int = 12
     n_embed: int = 768
     initialization: Optional[Callable] = gpt2_initialization
-
-
-# Causal Self-Attention
-class CausalSelfAttention(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        # Combining key, query, and value in a single matrix
-        self.key_query_value = nn.Linear(config.n_embed, 3 * config.n_embed)
-        self.proj = nn.Linear(config.n_embed, config.n_embed)
-        self.dropout = nn.Dropout(0.1)
-
-        # Make the causal mask a part of the module's state through register_buffer ensures
-        self.register_buffer(
-            "mask",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
-            ),
-        )
-
-    def forward(self, x):
-        batch_size, sequence_length, embed_size = x.size()
-
-        # Project to key, query, value in a single pass
-        kqv = self.key_query_value(x)
-        k, q, v = kqv.split(embed_size, dim=-1)
-
-        # Reshape for multi-head attention
-        def reshape_to_heads(tensor):
-            return tensor.view(
-                batch_size,
-                sequence_length,
-                self.config.n_head,
-                embed_size // self.config.n_head,
-            ).transpose(1, 2)
-
-        k, q, v = map(reshape_to_heads, [k, q, v])
-
-        # Scaled dot product attention
-        attn = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        attn = attn.masked_fill(
-            self.mask[:, :, :sequence_length, :sequence_length] == 0, float("-inf")
-        )
-        attn = F.softmax(attn, dim=-1)
-        attn = self.dropout(attn)
-
-        # Apply attention to the value and combine the heads back to the original tensor shape
-        y = (
-            (attn @ v)
-            .transpose(1, 2)
-            .contiguous()
-            .view(batch_size, sequence_length, embed_size)
-        )
-
-        return self.proj(y)
 
 
 # MLP
@@ -130,7 +80,7 @@ class GPT2(nn.Module):
         super().__init__()
         self.config = config
         self.tok_emb = nn.Embedding(config.vocab_size, config.n_embed)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embed))
+        self.pos_emb = nn.Parameter(torch.zeros(1, config.context_size, config.n_embed))
         self.drop = nn.Dropout(0.1)
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
         self.ln_f = nn.LayerNorm(config.n_embed)
